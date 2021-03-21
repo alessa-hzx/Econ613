@@ -1,0 +1,246 @@
+---
+title: "A2"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(knitr)
+library(tidyverse)
+library(bayesm)
+library(survival)
+```
+Load data
+```{r}
+data("margarine")
+```
+## EX 1
+Average and dispersion in product characteristics:
+```{r echo = FALSE}
+cat("1 Parkay, stick\n")
+summary(margarine$choicePrice$PPk_Stk)
+cat("2 BlueBonnett, stick\n")
+summary(margarine$choicePrice$PBB_Stk)
+cat("3 Fleischmanns, stick\n")
+summary(margarine$choicePric$PFl_Stk)
+cat("4 house, stick\n")
+summary(margarine$choicePrice$PHse_Stk)
+cat("5 generic, stick\n")
+summary(margarine$choicePrice$PGen_Stk)
+cat("6 Imperial, stick\n")
+summary(margarine$choicePrice$PImp_Stk)
+cat("7 Shed Spread, tub\n")
+summary(margarine$choicePrice$PSS_Tub)
+cat("8 Parkay, tub\n")
+summary(margarine$choicePrice$PPk_Tub)
+cat("9 Fleischmanns, tub\n")
+summary(margarine$choicePrice$PFl_Tub)
+cat("10 house, tub\n")
+summary(margarine$choicePrice$PHse_Tub)
+```
+Market share(?) and market share by product characteristics.
+```{r echo = FALSE}
+n = length(margarine$choicePrice$choice)
+cat("Number of household: ", n, "\n")
+num_choice = table(margarine$choicePrice[,2])
+market = rbind(num_choice,  format(num_choice/n, digits = 1))
+cat(" Market share for each product choice ", fill=TRUE)
+print(market)
+```
+The mapping between observed attributes and choices.
+```{r echo=FALSE}
+choice = c(1:10)
+attr = c("Parkay, stick", "BlueBonnett, stick", "Fleischmanns, stick", 
+         "house, stick", "generic, stick", "Imperial, stick", 
+         "Shed Spread, tub", "Parkay, tub", "Fleischmanns, tub",
+         "house, tub")
+name = names(margarine$choicePrice)[3:12]
+map = cbind(choice, attr, name)
+colnames(map) = c("choice", "attributes", "names")
+print(map)
+```
+## EX2
+The conditional logit model is used to capture the effect of price on demand.
+The probability that individual $i$ chooses product $j$: 
+$p_{ij} =\frac{e^{\beta x_{ij}}}{\sum_{k=1}^m e^{\beta x_{ik}}}$
+The log likelihood:
+$LLH(\beta) = \sum_i\sum_j y_{ij}\log(p_{ij})$
+where $y_{ij}$ is the indicator that individual $i$ chooses product $j$.
+```{r echo=FALSE}
+# create a dataframe
+data1 = margarine$choicePrice %>% select(hhid, choice)
+data2 = margarine$demos
+data = left_join(data1, data2, by = "hhid")
+data$Income = log(data$Income)
+choices = margarine$choicePrice %>% select(-hhid, -choice)
+m = nrow(map)
+y = data$choice
+n = nrow(data)
+ones = seq(1, 1, length.out = n)
+
+# create likelihood function
+llh1 = function(par,data,choices, map){
+  u = mat.or.vec(n,m)
+  for (j in 1:m){
+    info = cbind(ones, choices[map[, 3][j]])
+    u[, j] = data.matrix(info) %*% par
+  }
+  p = exp(u)
+  p = sweep(p,MARGIN=1,FUN="/",STATS=rowSums(p))     
+  # select the probability for actual choices
+  pc = NULL;
+  for (i in 1:n){
+    pc[i] = p[i, data$choice[i]]
+  }
+  pc[pc>0.999999] = 0.999999
+  pc[pc<0.000001] = 0.000001
+  like = sum(log(pc))
+  return(-like)
+}
+# optimize 
+result1 = optim(runif(2,-10, 10), fn = llh1, data = data,choices = choices,
+                map = map)
+print(result1$par)
+```
+The coefficient on price is $-2.4286596$, it converges to a value between $-2.427$
+and $2.428$. This suggests that, everything else constant, a unit increase in
+price for a product will reduce the probability of people choosing that product.
+
+## EX3
+
+```{r echo=FALSE}
+llh3 = function(par,data,choices, map){
+  u = mat.or.vec(n,m)
+  for (j in 1:m){
+    data %>% select(-hhid, -choice, -Fs5., -college)
+    info = cbind(ones, info, choices[map[, 3][j]])
+    u[, j] = data.matrix(info) %*% par
+  }
+  p = exp(u)
+  p = sweep(p,MARGIN=1,FUN="/",STATS=rowSums(p))     
+  # select the probability for actual choices
+  pc = NULL;
+  for (i in 1:n){
+    pc[i] = p[i, data$choice[i]]
+  }
+  pc[pc>0.999999] = 0.999999
+  pc[pc<0.000001] = 0.000001
+  like = sum(log(pc))
+  return(-like)
+}
+
+
+```
+
+
+The multinomial logit model is used to capture the effect of family income 
+on demand.
+```{r echo=FALSE}
+# create likelihood function
+llh2 = function(par, data, choices, map){
+  u = mat.or.vec(n,m)
+  par_m =  matrix(unlist(par), ncol = 10, byrow = TRUE)
+
+  for (j in 1:m){
+    info = data %>% select(-hhid, -choice, -Fs5., -college) 
+    #info = cbind(ones, info, choices[map[, 3][j]])
+    info = cbind(ones, info)
+    parj = par_m[, j]
+    u[, j] = data.matrix(info) %*% parj
+  }
+  p = exp(u)
+  p = sweep(p,MARGIN=1,FUN="/",STATS=rowSums(p))     
+  # select the probability for actual choices
+  pc = NULL;
+  for (i in 1:n){
+    pc[i] = p[i, data$choice[i]]
+  }
+  pc[pc>0.999999] = 0.999999
+  pc[pc<0.000001] = 0.000001
+  like = sum(log(pc))
+  return(-like)
+}
+# optimize
+start = matrix(runif(70, -5, 5),nrow=7, ncol = 10)
+result2 = optim(start, fn = llh2, data = data,choices = choices,
+                map = map)
+print(result2$par[2, ])
+
+```
+The results indicate that, everything else constant, if the family income rises, 
+people are more like to choose product 3, 4, 7, 8, 9, 10 but less likely to 
+choose product 1, 2, 5, 6.
+
+## EX4
+Compute marginal effect at the mean.
+First model:
+```{r echo=FALSE}
+m = nrow(map)
+n = nrow(data)
+par1 = result1$par
+ones = seq(1, 1, length.out = n)
+
+margneff = function(par1, data, choices, map){
+  m = nrow(map)
+  n = nrow(data)
+  u = mat.or.vec(n,m)
+  marg = array(0, dim=c(m,m,2))
+  for (j in 1:m){
+    info = cbind(ones, choices[map[, 3][j]])
+    u[, j] = data.matrix(info) %*% par1
+  }
+  p = exp(colMeans(u))
+  p = p / sum(p)    
+  for (j in 1:m){
+    for (k in 1:m){
+      delta = 0
+      if (j == k){
+        delta = 1
+      }
+      marg[j, k, ] = p[j] * (delta - p[k]) * par1
+    }
+  }
+  
+  return(marg)
+}
+
+margneff(par1, data, choices, map)[,,2]
+
+```
+The table represents the average change of probability for buying product 
+j (rows) when price of product k (columns) increases by 1 unit.
+For example, [1, 1] and [1, 2] mean that, ceteris paribus, if price of 
+product 1 increases 1 unit, the probability of choosing product 1 is decreased by $0.2863$, 
+whereas the probability of choosing product 2 is increased by $0.0426$.
+
+
+Second model:
+```{r echo=FALSE}
+par2 = result2$par
+
+margeff2 = function(par2, data, choices, map){
+  u = mat.or.vec(n,m)
+  marg = mat.or.vec(7, m)
+  for (j in 1:m){
+  info = data %>% select(-hhid, -choice, -Fs5.) 
+  #info = cbind(ones, info, choices[map[, 3][j]])
+  info = cbind(ones, info)
+  u[, j] = data.matrix(info) %*% par2[, j]
+  }
+  p = exp(colMeans(u))
+  p = p / sum(p) 
+  beta_bar = par2 %*% p
+  marg[, j] = p[j] * (par2[, j] - beta_bar)
+  return(marg)
+}
+
+margeff2(par2, data, choices, map)
+
+```
+The results suggest that increase in family income by 1 unit will increase the
+prbability of choosing product 10 by 
+
+## EX5
+
+
