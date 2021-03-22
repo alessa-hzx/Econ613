@@ -1,0 +1,384 @@
+---
+title: "A2"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(knitr)
+library(tidyverse)
+library(bayesm)
+library(survival)
+library("data.table")
+```
+Load data
+```{r}
+data("margarine")
+```
+## EX 1
+### Average and dispersion in product characteristics:
+```{r echo = FALSE}
+cat("1 Parkay, stick\n")
+summary(margarine$choicePrice$PPk_Stk)
+cat("2 BlueBonnett, stick\n")
+summary(margarine$choicePrice$PBB_Stk)
+cat("3 Fleischmanns, stick\n")
+summary(margarine$choicePric$PFl_Stk)
+cat("4 house, stick\n")
+summary(margarine$choicePrice$PHse_Stk)
+cat("5 generic, stick\n")
+summary(margarine$choicePrice$PGen_Stk)
+cat("6 Imperial, stick\n")
+summary(margarine$choicePrice$PImp_Stk)
+cat("7 Shed Spread, tub\n")
+summary(margarine$choicePrice$PSS_Tub)
+cat("8 Parkay, tub\n")
+summary(margarine$choicePrice$PPk_Tub)
+cat("9 Fleischmanns, tub\n")
+summary(margarine$choicePrice$PFl_Tub)
+cat("10 house, tub\n")
+summary(margarine$choicePrice$PHse_Tub)
+```
+```{r echo=FALSE}
+cat("Dispersion\n")
+apply(margarine$choicePrice[, 3:12], 2, sd)
+```
+
+### Market share and market share by product characteristics
+```{r echo = FALSE}
+n = length(margarine$choicePrice$choice)
+cat("Number of household: ", n, "\n")
+num_choice = table(margarine$choicePrice[,2])
+market = rbind(num_choice,  format(num_choice/n, digits = 1))
+cat(" Market share for each product choice ", fill=TRUE)
+print(market)
+cat("Average choice frequency: ")
+mean(num_choice)
+```
+We can see that choice frequency of product 1, 2, 4 are above the average, whereas choice frequency of product 
+3, 5, 6, 7, 8, 9, 10 are below the average.
+
+### Market share by brand
+```{r echo=FALSE}
+brand = names(margarine$choicePrice[, 3:12]) %>% str_replace_all("_Stk|_Tub", "")
+brand = cbind.data.frame(brand, table(margarine$choicePrice[, 2])) %>% 
+  group_by(brand) %>% 
+  summarise(choice_freq = sum(Freq))
+market_share = brand$choice_freq / n
+brand = cbind(brand,market_share)
+cat(" Market share for each brand ")
+print(brand )
+cat("Average choice frequency: ")
+print(mean(brand$choice_freq))
+```
+We can see that only the choice frequency of PBB and PPk are above average.
+
+### Market share by type of product
+```{r echo=FALSE}
+cat("Market share of stk: ")
+sum(num_choice[1:6]) / n
+cat("Market share of tub: ")
+sum(num_choice[7:10])/ n
+```
+
+### The mapping between observed attributes and choices
+```{r echo=FALSE}
+choice = c(1:10)
+attr = c("Parkay, stick", "BlueBonnett, stick", "Fleischmanns, stick", 
+         "house, stick", "generic, stick", "Imperial, stick", 
+         "Shed Spread, tub", "Parkay, tub", "Fleischmanns, tub",
+         "house, tub")
+name = names(margarine$choicePrice)[3:12]
+map = cbind(choice, attr, name)
+colnames(map) = c("choice", "attributes", "names")
+print(map)
+```
+```{r echo=FALSE}
+all_data = left_join(margarine$choicePrice, margarine$demos, by = "hhid")
+cat(" Choice frequency by each income level \n")
+table(all_data$Income, all_data$choice)
+```
+```{r echo=FALSE}
+cat(" Choice frequency by whether family size is 3-4 \n")
+table(all_data$Fs3_4, all_data$choice)
+```
+```{r echo=FALSE}
+cat(" Choice frequency by whether family size >= 5 \n")
+table(all_data$Fs5., all_data$choice)
+```
+```{r echo=FALSE}
+cat(" Choice frequency by family size\n")
+table(all_data$Fam_Size, all_data$choice)
+```
+```{r echo=FALSE}
+cat(" Choice frequency by education status(attended college or not) \n")
+table(all_data$college, all_data$choice)
+```
+```{r echo=FALSE}
+cat(" Choice frequency by job status(white collar or not) \n")
+table(all_data$whtcollar, all_data$choice)
+```
+```{r echo=FALSE}
+cat(" Choice frequency by retirement status(retired or not) \n")
+table(all_data$retired, all_data$choice)
+```
+
+## EX2
+The conditional logit model is used to capture the effect of price on demand.
+The probability that individual $i$ chooses product $j$: 
+$p_{ij} =\frac{e^{\beta x_{ij}}}{\sum_{k=1}^m e^{\beta x_{ik}}}$
+The log likelihood:
+$LLH(\beta) = \sum_i\sum_j y_{ij}\log(p_{ij})$
+where $y_{ij}$ is the indicator that individual $i$ chooses product $j$.
+```{r echo=FALSE}
+data1 = margarine$choicePrice %>% select(hhid, choice)
+data2 = margarine$demos
+data = left_join(data1, data2, by = "hhid")
+data$Income = log(data$Income)
+choices = margarine$choicePrice %>% select(-hhid, -choice)
+m = nrow(map)
+n = nrow(data)
+ones = seq(1, 1, length.out = n)
+
+# create likelihood function
+llh1 = function(par,data,choices, map){
+  u = mat.or.vec(n,m)
+  for (j in 1:m){
+    info = cbind(ones, choices[map[, 3][j]])
+    u[, j] = data.matrix(info) %*% par
+  }
+  p = exp(u)
+  p = sweep(p,MARGIN=1,FUN="/",STATS=rowSums(p))     
+  # select the probability for actual choices
+  pc = NULL;
+  for (i in 1:n){
+    pc[i] = p[i, data$choice[i]]
+  }
+  pc[pc>0.999999] = 0.999999
+  pc[pc<0.000001] = 0.000001
+  like = sum(log(pc))
+  return(-like)
+}
+# optimize 
+result1 = optim(runif(2,-10, 10), fn = llh1, data = data,choices = choices,
+                map = map)
+print(result1$par)
+```
+The coefficient on price converges to a value between $-2.427$
+and $-2.428$. This suggests that, everything else constant, a unit increase in
+price for a product will reduce the probability of people choosing that product.
+
+## EX3
+The multinomial logit model is used to capture the effect of family income 
+on demand: $p_{ij} = \frac{e^{X_i\beta_j}}{\sum_{k=1}^m e^{X_i\beta_k}}$.
+```{r echo=FALSE}
+# create likelihood function
+llh2 = function(par, data){
+  u = mat.or.vec(n,1)
+  info = data %>% select(Income) 
+  X = data.matrix(info)
+  par[1] = 0 # use product 1 as reference
+  Xbeta = X %*% par
+
+  for (i in 1:n){
+    j = data$choice[i]
+    u[i] = Xbeta[i, j]
+  }
+  p = exp(u)
+  p = p / rowSums(Xbeta)    
+  
+  p[p>0.999999] = 0.999999
+  p[p<0.000001] = 0.000001
+  like = sum(log(p))
+  return(-like)
+}
+# optimize
+result2 = optim(seq(0, 9), fn = llh2, data = data, method = "BFGS", hessian = TRUE)
+result2$par
+
+```
+The results indicate that, everything else constant, if the family income rises, 
+people are more like to choose product 2, 3, 4, 5, 6, 7, 9 compared to product 1, but less likely to 
+choose product 8, 10 compared to product 1.
+
+## EX4
+Compute marginal effect at the mean.
+
+### First model
+```{r echo=FALSE}
+m = nrow(map)
+n = nrow(data)
+par1 = result1$par
+ones = seq(1, 1, length.out = n)
+
+margneff = function(par1, data, choices, map){
+  m = nrow(map)
+  n = nrow(data)
+  u = mat.or.vec(n,m)
+  marg = array(0, dim=c(m,m,2))
+  for (j in 1:m){
+    info = cbind(ones, choices[map[, 3][j]])
+    u[, j] = data.matrix(info) %*% par1
+  }
+  p = exp(colMeans(u))
+  p = p / sum(p)    
+  for (j in 1:m){
+    for (k in 1:m){
+      delta = 0
+      if (j == k){
+        delta = 1
+      }
+      marg[j, k, ] = p[j] * (delta - p[k]) * par1
+    }
+  }
+  
+  return(marg)
+}
+
+margneff(par1, data, choices, map)[,,2]
+
+```
+The table represents the average change of probability for buying product 
+j (rows) when price of product k (columns) increases by 1 unit.
+For example, [1, 1] and [1, 2] mean that, ceteris paribus, if price of 
+product 1 increases 1 unit, the probability of choosing product 1 is decreased by $0.2863$, 
+whereas the probability of choosing product 2 is increased by $0.0426$.
+
+
+### Second model
+```{r echo=FALSE}
+par2 = result2$par
+
+margeff2 = function(par2, data){
+  info = data %>% select(Income)
+  par = data.matrix(par2)
+  X = data.matrix(info)
+  Xbeta = X %*% t(par)
+  u = exp(Xbeta)
+  p = apply(u, 1, function (x) x/sum(x))
+  beta_bar = t(p) %*% par
+  beta_bar = matrix(rep(beta_bar, 10), ncol = 10 )
+  beta = matrix(rep(t(par)), nrow = n, ncol = 10, byrow = TRUE)
+  marg = colSums(t(p) *(beta - beta_bar)) / n
+  return(marg)
+}
+
+margeff2(par2, data)
+
+```
+ 
+## EX5
+The mixed logit model: $p_{ij} = \frac{\exp(X_{ij}\beta + W_i\gamma_j)}{\sum_{k=1}^m \exp(X_{ik}\beta + W_i\gamma_k)}$
+```{r echo=FALSE}
+llh_mix = function (par, all_data){
+  X = all_data[, 3:12] - all_data[, 3] # price of product 1 as reference
+  W = log(all_data$Income)
+  beta = par[1]
+  Xbeta = X * beta
+  gamma = par[2:11]
+  gamma[1] = 0 # first product as reference
+  Wgamma = W %*% t(gamma)
+  u = exp(Xbeta + Wgamma)
+  u_sum = rowSums(u)
+  u_sum = matrix(rep(u_sum), nrow = n, ncol = 10, byrow = FALSE)
+  p_ij = u / u_sum
+  pc = mat.or.vec(n, 1)
+  for (i in 1:n){
+    # the choice individual actually choose
+    c = all_data$choice[i]
+    pc[i] = p_ij[i, c]
+  }
+  pc[pc>0.999999] = 0.999999
+  pc[pc<0.000001] = 0.000001
+  like = sum(log(pc))
+  return(-like)
+}
+# optimize
+result3 = optim(rep(0,11), fn = llh_mix, all_data = all_data, method = "BFGS", hessian = TRUE)
+```
+Print $\beta^f$:
+```{r echo=FALSE}
+beta_f = result3$par
+print(beta_f)
+```
+Remove choice 10 from the data, then re-estimate the model.
+```{r echo=FALSE}
+subset = all_data %>% filter(choice < 10)
+llh_mix2 = function (par, subset){
+  n = nrow(subset)
+  X = subset[, 3:11] - subset[, 3] # price of product 1 as reference
+  W = log(subset$Income)
+  beta = par[1]
+  Xbeta = X * beta
+  gamma = par[2:10]
+  gamma[1] = 0 # first product as reference
+  Wgamma = W %*% t(gamma)
+  u = exp(Xbeta + Wgamma)
+  u_sum = rowSums(u)
+  u_sum = matrix(rep(u_sum), nrow = n, ncol = 9, byrow = FALSE)
+  p_ij = u / u_sum
+  pc = mat.or.vec(n, 1)
+  for (i in 1:n){
+    # the choice individual actually choose
+    c = subset$choice[i]
+    pc[i] = p_ij[i, c]
+  }
+  pc[pc>0.999999] = 0.999999
+  pc[pc<0.000001] = 0.000001
+  like = sum(log(pc))
+  return(-like)
+}
+result4 = optim(rep(0,10), fn = llh_mix2, subset = subset, method = "BFGS", hessian = TRUE)
+```
+Print $\beta^r$:
+```{r echo=FALSE}
+beta_r = result4$par
+beta_r
+```
+Compute test statistics: 
+$MTT = -2[L_r(\beta^f) - L_r(\beta^r)]$
+
+```{r echo=FALSE}
+# calculate MLE on the subset given parameter
+mle = function(par){
+  n = nrow(subset)
+  X = subset[, 3:11] - subset[, 3] # price of product 1 as reference
+  W = log(subset$Income)
+  beta = par[1]
+  Xbeta = X * beta
+  gamma = par[2:10]
+  gamma[1] = 0 # first product as reference
+  Wgamma = W %*% t(gamma)
+  u = exp(Xbeta + Wgamma)
+  u_sum = rowSums(u)
+  u_sum = matrix(rep(u_sum), nrow = n, ncol = 9, byrow = FALSE)
+  p_ij = u / u_sum
+  pc = mat.or.vec(n, 1)
+  for (i in 1:n){
+    # the choice individual actually choose
+    c = subset$choice[i]
+    pc[i] = p_ij[i, c]
+  }
+  pc[pc>0.999999] = 0.999999
+  pc[pc<0.000001] = 0.000001
+  like = sum(log(pc))
+  return(like)
+}
+# calculate L_r(beta_r) and L_r(beta_f)
+L_beta_r = mle(beta_r)
+L_beta_f = mle(beta_f[1:10])
+
+```
+```{r echo=FALSE}
+MTT = -2 * (L_beta_f - L_beta_r)
+cat("MTT:")
+MTT
+```
+Conclusion on IIA:$MMT\sim \chi^2(||\beta^r||)$
+```{r echo=FALSE}
+cat("The 95th percentile of the Chi-Squared distribution with 10 degrees of freedom is")
+qchisq(0.95, df = length(beta_r))
+```
+Test result shows that IIA holds at 95% confidence level. We cannot reject that choice probability is unaffected by
+the removal of one alternative.
