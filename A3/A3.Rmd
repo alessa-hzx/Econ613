@@ -1,0 +1,121 @@
+---
+title: "A3"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(knitr)
+library(tidyverse)
+library(plm)
+library(fastDummies)
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## EX1 Data Set
+Load dataset.
+```{r loaddata, echo = FALSE}
+pop = read.csv("population.csv")
+crime = read.csv("crime_long.csv")
+officers = read.csv("officers.csv")
+```
+
+## EX2 Data Manipulation
+
+$\bullet$ Calculate total crime per month and plot the time series of crime.
+
+```{r  echo=FALSE}
+crime_per_month = crime %>% select(crime_month, crimes)%>% group_by(crime_month) %>% summarise(Crime = sum(crimes))
+crime_per_month$crime_month = as.Date(crime_per_month$crime_month, "%Y-%m-%d")
+plot(crime_per_month$Crime ~ crime_per_month$crime_month, crime_per_month, xaxt = "n", type = "l",
+     xlab = "Month", ylab = "Number of Crimes", main = "Total Crime per Month")
+axis(1, crime_per_month$crime_month,format(crime_per_month$crime_month, "%Y/%m"))
+
+```
+
+$\bullet$ Merge two datasets by district-units and period.
+```{r echo = FALSE}
+crime= crime %>% group_by(crime_month, district, crime_type) %>% summarise(crimes = sum(crimes), .groups ='keep')
+data = left_join(crime, pop, by = c("crime_month" = "month", "district" = "district"))
+# remove rows with NA
+data = data[complete.cases(data), ]
+head(data)
+```
+$\bullet$ Construct a panel data of unit over time.
+```{r echo=FALSE}
+# districts over time
+panel = unique(data %>% ungroup()%>% select(crime_month, period, district))
+# total crimes per resident
+crimes_per_pl = data %>% ungroup() %>% select(crime_month, district, crimes, tot_pop)%>% group_by(crime_month, district) %>% summarise(crimes_per_pl = sum(crimes)/mean(tot_pop), .groups = 'keep')
+panel = panel%>% left_join(crimes_per_pl, by = c("crime_month", "district"))
+# violent crimes per resident
+viocrimes_per_pl = data %>% filter(crime_type == "violent") %>% ungroup() %>% select(crime_month, district, crimes, tot_pop)%>% group_by(crime_month, district) %>% summarise(viocrimes_per_pl = sum(crimes)/mean(tot_pop), .groups = 'keep')
+panel = panel%>% left_join(viocrimes_per_pl, by = c("crime_month", "district"))
+# property crimes per resident
+procrimes_per_pl = data %>% filter(crime_type == "property") %>% ungroup() %>% select(crime_month, district, crimes, tot_pop)%>% group_by(crime_month, district) %>% summarise(procrimes_per_pl = sum(crimes)/mean(tot_pop), .groups = 'keep')
+panel = panel%>% left_join(procrimes_per_pl, by = c("crime_month", "district"))
+# median income
+medincome = data %>% ungroup() %>% select(crime_month, district, p50_inc) %>% 
+  group_by(crime_month, district) %>% summarise(medinc = mean(p50_inc), .groups = 'keep')
+panel = panel%>% left_join(medincome, by = c("crime_month", "district"))
+```
+```{r echo=FALSE}
+# share of black, Hispanic, and white residents
+shares = data %>% ungroup() %>% select(crime_month, district, tot_pop, tot_white, tot_black, tot_hisp) %>% group_by(crime_month, district) %>% summarise(perc_white = mean(tot_white)/mean(tot_pop), perc_black = mean(tot_black)/mean(tot_pop), perc_hisp = mean(tot_hisp)/mean(tot_pop), .groups = 'keep')
+panel = panel %>% left_join(shares, by = c("crime_month", "district"))
+```
+```{r echo=FALSE}
+head(panel)
+```
+## EX3 Panel Data: Introduction
+```{r echo = FALSE}
+# create dataset
+data1 = officers %>% left_join(panel, by = c("month" = "crime_month", "unit" = "district"))
+```
+$\bullet$ With intercept.
+```{r echo = FALSE}
+# regression (with intercept)
+model1 = lm(arrest ~ tenure + crimes_per_pl + medinc + perc_black + perc_hisp + perc_white, data = data1)
+summary(model1)
+```
+$\bullet$ Without intercept.
+```{r echo=FALSE}
+# Without intercept
+model2 = lm(arrest ~ tenure + crimes_per_pl + medinc + perc_black + perc_hisp + perc_white - 1, data = data1)
+summary(model2)
+```
+
+## EX4 Panel Data: More controls
+$\bullet$ Creating dummy by hand.
+```{r echo=FALSE}
+data2 = data1
+# generate dummy variables for districts
+data2 = fastDummies::dummy_cols(data2, select_columns = "unit") %>% select(-unit)
+# generate dummy variables for year and month
+data2 = fastDummies::dummy_cols(data2, select_columns = "month") %>% select(-month)
+# remove variables we don't use
+data2 = data2 %>% select(-c(NUID, period, viocrimes_per_pl, procrimes_per_pl))
+data2 = data2[,-33] # drop the first year-month: 2007-01-01
+# regression with dummies
+model3 = lm(arrest ~. - 1, data = data2)
+summary(model3)
+```
+
+$\bullet$ Using factor() yields the same result.
+```{r echo=FALSE}
+# using the lm model with factor() for fixed effects
+model4 = lm(arrest ~ tenure+ crimes_per_pl+medinc+perc_black+perc_hisp+perc_white+factor(unit)+factor(month) - 1, data = data1)
+summary(model4)
+```
+
+## EX5 Panel Data: Individual fixed effects
+```{r echo=FALSE}
+
+```
+
+
+
+
+
+
+
