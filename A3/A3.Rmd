@@ -117,6 +117,12 @@ summary(model4)
 ```
 
 ## EX5 Panel Data: Individual fixed effects
+Using equation (3):
+```{r echo=FALSE}
+model = lm(arrest ~ tenure+ crimes_per_pl+medinc+perc_black+perc_hisp+perc_white +factor(unit)+factor(month)+factor(NUID) - 1, data = data1)
+summary(model)
+```
+
 Encounter memory error when creating dummy for individual fixed effects, so I use equation (2).
 $\bullet$ Within estimator for $\beta$. Since in EX4 we can see the results by using factor() and generating dummies by hand are the same, I used factor() in lm for fixed effects in this question. 
 Encounter memory error when creating dummy for individual fixed effects.
