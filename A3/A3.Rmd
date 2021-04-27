@@ -9,6 +9,8 @@ library(knitr)
 library(tidyverse)
 library(plm)
 library(fastDummies)
+library(sandwich)
+
 knitr::opts_chunk$set(echo = FALSE)
 ```
 
@@ -67,6 +69,12 @@ panel = panel %>% left_join(shares, by = c("crime_month", "district"))
 ```{r echo=FALSE}
 head(panel)
 ```
+```{r echo =  FALSE}
+# remove variables no longer needed
+rm(crime_per_month, crimes_per_pl, medincome, shares, procrimes_per_pl, viocrimes_per_pl, pop)
+```
+
+
 ## EX3 Panel Data: Introduction
 ```{r echo = FALSE}
 # create dataset
@@ -109,11 +117,46 @@ summary(model4)
 ```
 
 ## EX5 Panel Data: Individual fixed effects
+Encounter memory error when creating dummy for individual fixed effects, so I use equation (2).
+$\bullet$ Within estimator for $\beta$. Since in EX4 we can see the results by using factor() and generating dummies by hand are the same, I used factor() in lm for fixed effects in this question. 
+Encounter memory error when creating dummy for individual fixed effects.
 ```{r echo=FALSE}
-
+model5 = lm(arrest ~ tenure+ crimes_per_pl+medinc+perc_black+perc_hisp+perc_white +factor(unit)+factor(month) - 1, data = data1)
+summary(model5)
+```
+$\bullet$ Between estimator of $\beta$.
+```{r echo=FALSE}
+# group data to average out the time component
+data_avgtime = data1 %>% group_by(NUID)%>% summarise(unit = mean(unit), tenure = mean(tenure), arrest = mean(arrest), totcrime = mean(crimes_per_pl), medin = mean(medinc), black = mean(perc_black), hisp = mean(perc_hisp), white = mean(perc_white))
+# run estimation
+model6 = lm(arrest ~ tenure+ totcrime +medin + black+ hisp+ white + factor(unit) - 1, data = data_avgtime)
+summary(model6)
 ```
 
+$\bullet$ First difference estimator for $\beta$.
+```{r echo=FALSE}
+data_sort = data1[order(data1$NUID, data1$month),]
+n = unique(data1$NUID)
+n = n[!is.na(n)]
+beta = mat.or.vec(1, length(n))
+j = 0
+#for (i in n){
+#  dat = data_sort%>%filter(NUID == i)
+#  if (nrow(dat)>1){
+#    df = data.frame(diff(as.matrix(dat%>%select(-month))))
+#  }else{
+#    df = dat
+#  }
+#  m = lm(arrest~tenure+ crimes_per_pl+medinc+perc_black+perc_hisp+perc_white -1, data = df)
+#  beta[j] = m$coefficients[["tenure"]]
+#  j = j + 1
+#}
+# mean(beta)
+```
+```{r echo=FALSE}
+# GMM
 
+```
 
 
 
